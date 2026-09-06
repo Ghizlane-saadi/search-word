@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Word Search</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #eaf4ff, #f8fbff);
+    }
+
+    .card {
+      width: min(90%, 480px);
+      padding: 32px;
+      text-align: center;
+      background: white;
+      border-radius: 18px;
+      box-shadow: 0 12px 30px rgba(31, 76, 120, 0.15);
+    }
+
+    h1 { color: #184e77; }
+
+    .search-box {
+      display: flex;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    input {
+      flex: 1;
+      min-width: 0;
+      padding: 13px;
+      font-size: 17px;
+      border: 2px solid #b8d8f3;
+      border-radius: 10px;
+      outline: none;
+    }
+
+    input:focus { border-color: #2980b9; }
+
+    button {
+      padding: 13px 22px;
+      border: 0;
+      border-radius: 10px;
+      color: white;
+      background: #2980b9;
+      font-size: 17px;
+      cursor: pointer;
+    }
+
+    button:hover { background: #1d648f; }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.65;
+    }
+
+    #result {
+      min-height: 58px;
+      margin-top: 24px;
+      padding: 16px;
+      border-radius: 10px;
+      color: #184e77;
+      background: #eef7ff;
+      font-size: 17px;
+      overflow-wrap: anywhere;
+    }
+
+    .word {
+      margin: 0 0 6px;
+      font-size: 26px;
+      text-transform: capitalize;
+    }
+
+    .phonetic {
+      margin: 0 0 14px;
+      color: #617b91;
+    }
+
+    .definition {
+      margin: 0;
+      color: #243746;
+      line-height: 1.6;
+    }
+
+    .error { color: #b42318; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Enter a Word</h1>
+
+    <div class="search-box">
+      <input id="wordInput" type="text" placeholder="Type a word here..." autocomplete="off">
+      <button id="okButton" type="button">OK</button>
+    </div>
+
+    <div id="result" aria-live="polite">The word and its meaning will appear here</div>
+  </main>
+
+  <script>
+    const wordInput = document.getElementById('wordInput');
+    const okButton = document.getElementById('okButton');
+    const result = document.getElementById('result');
+
+    const offlineDictionary = {
+      apple: ['noun', 'A round fruit with red, green, or yellow skin.'],
+      book: ['noun', 'A set of written or printed pages bound together.'],
+      car: ['noun', 'A road vehicle with four wheels and an engine.'],
+      cat: ['noun', 'A small domesticated animal often kept as a pet.'],
+      computer: ['noun', 'An electronic device that stores and processes data.'],
+      dog: ['noun', 'A domesticated animal often kept as a pet.'],
+      education: ['noun', 'The process of teaching and learning.'],
+      friend: ['noun', 'A person whom you know, like, and trust.'],
+      happy: ['adjective', 'Feeling or showing pleasure or satisfaction.'],
+      hello: ['exclamation', 'A word used as a greeting.'],
+      house: ['noun', 'A building in which people live.'],
+      language: ['noun', 'A system of communication using words or signs.'],
+      learn: ['verb', 'To gain knowledge or a new skill.'],
+      school: ['noun', 'A place where people go to learn.'],
+      student: ['noun', 'A person who studies at a school or university.'],
+      teacher: ['noun', 'A person whose job is to teach.'],
+      water: ['noun', 'A clear liquid that people, animals, and plants need.'],
+      work: ['noun', 'An activity involving effort to achieve a result.']
+    };
+
+    function plainText(html) {
+      const element = document.createElement('div');
+      element.innerHTML = html;
+      element.querySelectorAll('style, script').forEach(item => item.remove());
+      return element.textContent.trim();
+    }
+
+    async function getDefinition(word) {
+      const localEntry = offlineDictionary[word.toLowerCase()];
+      if (localEntry) {
+        return { word, partOfSpeech: localEntry[0], definition: localEntry[1], phonetic: '' };
+      }
+
+      try {
+        const response = await fetch(
+          `https://en.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(word)}`
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const entries = data.en || [];
+
+          for (const entry of entries) {
+            for (const item of entry.definitions || []) {
+              const definition = plainText(item.definition || '');
+              if (definition) {
+                return { word, partOfSpeech: entry.partOfSpeech, definition, phonetic: '' };
+              }
+            }
+          }
+        }
+      } catch (error) {
+        // If this service is unavailable, try the second dictionary below.
+      }
+
+      const response = await fetch(
+        `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`
+      );
+
+      if (!response.ok) throw new Error('Word not found');
+
+      const data = await response.json();
+      const entry = data[0];
+      const meaning = entry.meanings?.[0];
+      const definition = meaning?.definitions?.[0]?.definition;
+
+      if (!definition) throw new Error('Definition not found');
+
+      return {
+        word: entry.word,
+        partOfSpeech: meaning.partOfSpeech,
+        definition,
+        phonetic: entry.phonetic || ''
+      };
+    }
+
+    async function showWord() {
+      const word = wordInput.value.trim();
+
+      if (!word) {
+        result.textContent = 'Please enter a word first';
+        return;
+      }
+
+      result.classList.remove('error');
+      result.textContent = 'Searching...';
+      okButton.disabled = true;
+
+      try {
+        const entry = await getDefinition(word);
+
+        result.replaceChildren();
+
+        const wordTitle = document.createElement('h2');
+        wordTitle.className = 'word';
+        wordTitle.textContent = entry.word;
+
+        const phonetic = document.createElement('p');
+        phonetic.className = 'phonetic';
+        phonetic.textContent = entry.phonetic || entry.partOfSpeech || '';
+
+        const definitionText = document.createElement('p');
+        definitionText.className = 'definition';
+        definitionText.textContent = `${entry.partOfSpeech}: ${entry.definition}`;
+
+        result.append(wordTitle, phonetic, definitionText);
+      } catch (error) {
+        result.textContent = 'No definition was found. Check the spelling and your internet connection.';
+        result.classList.add('error');
+      } finally {
+        okButton.disabled = false;
+      }
+    }
+
+    okButton.addEventListener('click', showWord);
+
+    wordInput.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') showWord();
+    });
+  </script>
+</body>
+</html>
